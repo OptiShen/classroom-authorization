@@ -1,176 +1,76 @@
 #include <EEPROM.h>     // We are going to read and write Tag's UIDs from/to EEPROM
 #include <MFRC522.h>
 #include <LiquidCrystal_I2C.h>
-#include <SoftwareSerial.h>
 #include <Servo.h>
 #include <SPI.h>
 #include <Wire.h>
-
 // Create instances
-SoftwareSerial esp8266(3, 4);
 MFRC522 mfrc522(10, 9); // MFRC522 mfrc522(SS_PIN, RST_PIN)
-LiquidCrystal_I2C lcd(0x27, 16, 2); // Set the LCD address to 0x27 for a 16 chars and 2 line display
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 Servo myServo;  // create servo object to control a servo
-
-
-// Initialize Pins for led's, servo, buzzer and button
+// Set Pins for led's, servo, buzzer and wipe button
 constexpr uint8_t greenLed = 7;
 constexpr uint8_t blueLed = 6;
 constexpr uint8_t redLed = 5;
 constexpr uint8_t ServoPin = 8;
-constexpr uint8_t BuzzerPin = 2;
-constexpr uint8_t wipeB = 1;     // Button pin for WipeMode
-
+constexpr uint8_t BuzzerPin = 4;
+constexpr uint8_t wipeB = 3;     // Button pin for WipeMode
 boolean match = false;          // initialize card match to false
 boolean programMode = false;  // initialize programming mode to false
 boolean replaceMaster = false;
-boolean RFIDMode = true;
-
 uint8_t successRead;    // Variable integer to keep if we have Successful Read from Reader
-
 byte storedCard[4];   // Stores an ID read from EEPROM
 byte readCard[4];   // Stores scanned ID read from RFID Module
 byte masterCard[4];   // Stores master card's ID read from EEPROM
-
-
 ///////////////////////////////////////// Setup ///////////////////////////////////
 void setup() {
-  lcd.begin();  // initialize the LCD
-  lcd.backlight();
-  // Serial and esp8266 set to 115200 baud rate
-  esp8266.begin(115200);
-  Serial.begin(115200);
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(" -Please wait-");
-  lcd.setCursor(0, 1);
-  lcd.print(" WiFi Configure");
-
-
-  // reset the esp8266 for new connection
-  delay(1000);
-  esp8266.println("AT+RST");
-  delay(2000);
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  esp8266.println("AT+CWMODE=1");
-  delay(1000);
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  esp8266.println("AT+CWJAP=\"HotsPot Ng Mga Pogi\",\"sakanalang\"");
-  delay(5000);
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  Serial.print("Connected to WiFi");
-  
-  esp8266.println("AT+CIPMUX=0");
-  delay(1000);
-
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  esp8266.println("AT+CIPSTART=\"TCP\",\"127.0.0.1\",80");
-  delay(3000);
-
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  esp8266.println("AT+CIPSEND=52");
-  delay(1000);
-
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  esp8266.println("GET /access/index.php HTTP/1.0\r\n\r\n");
-  delay(1000);
-
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  esp8266.println("AT+CIFSR");
-  delay(1000);
-
-  while (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("  -Setup Done-");
-  lcd.setCursor(0, 1);
-  lcd.print("  Welcome User");
-  delay(3000);
-
-
-
-  //Protocol Configuration
-  SPI.begin();           // MFRC522 Hardware uses SPI protocol
-  mfrc522.PCD_Init();    // Initialize MFRC522 Hardware
-  myServo.attach(ServoPin);   // attaches the servo on pin 8 to the servo object
-  myServo.write(10);   // Initial Position
-  // Arduino communicates with SIM900 GSM shield at a baud rate of 19200
-  // Make sure that corresponds to the baud rate of your module
-
   //Arduino Pin Configuration
   pinMode(redLed, OUTPUT);
   pinMode(greenLed, OUTPUT);
   pinMode(blueLed, OUTPUT);
   pinMode(BuzzerPin, OUTPUT);
   pinMode(wipeB, INPUT_PULLUP);   // Enable pin's pull up resistor
-
   // Make sure led's are off
   digitalWrite(redLed, LOW);
   digitalWrite(greenLed, LOW);
   digitalWrite(blueLed, LOW);
-
+  //Protocol Configuration
+  lcd.begin();  // initialize the LCD
+  lcd.backlight();
+  SPI.begin();           // MFRC522 Hardware uses SPI protocol
+  mfrc522.PCD_Init();    // Initialize MFRC522 Hardware
+  myServo.attach(ServoPin);   // attaches the servo on pin 8 to the servo object
+  myServo.write(10);   // Initial Position
   //If you set Antenna Gain to Max it will increase reading distance
   //mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
-
   ShowReaderDetails();  // Show details of PCD - MFRC522 Card Reader details
-
   //Wipe Code - If the Button (wipeB) Pressed while setup run (powered on) it wipes EEPROM
   if (digitalRead(wipeB) == LOW) {  // when button pressed pin should get low, button connected to ground
     digitalWrite(redLed, HIGH); // Red Led stays on to inform user we are going to wipe
-
     lcd.setCursor(0, 0);
     lcd.print("Button Pressed");
     digitalWrite(BuzzerPin, HIGH);
     delay(1000);
     digitalWrite(BuzzerPin, LOW);
-
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("This will remove");
     lcd.setCursor(0, 1);
     lcd.print("all records");
     delay(2000);
-
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("You have 10 ");
     lcd.setCursor(0, 1);
     lcd.print("secs to Cancel");
     delay(2000);
-
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Unpres to cancel");
     lcd.setCursor(0, 1);
     lcd.print("Counting: ");
-
     bool buttonState = monitorWipeButton(10000); // Give user enough time to cancel operation
     if (buttonState == true && digitalRead(wipeB) == LOW) {    // If button still be pressed, wipe EEPROM
-      lcd.clear();
       lcd.print("Wiping EEPROM...");
       for (uint16_t x = 0; x < EEPROM.length(); x = x + 1) {    //Loop end of EEPROM address
         if (EEPROM.read(x) == 0) {              //If EEPROM address 0
@@ -183,7 +83,6 @@ void setup() {
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Wiping Done");
-
       // visualize a successful wipe
       digitalWrite(redLed, LOW);
       digitalWrite(BuzzerPin, HIGH);
@@ -206,7 +105,6 @@ void setup() {
       digitalWrite(redLed, LOW);
     }
   }
-
   // Check if master card defined, if not let user choose a master card
   // This also useful to just redefine the Master Card
   // You can keep other EEPROM records just write other than 143 to EEPROM address 1
@@ -218,15 +116,12 @@ void setup() {
     lcd.setCursor(0, 1);
     lcd.print("Defined");
     delay(2000);
-
     lcd.setCursor(0, 0);
     lcd.print("Scan A Tag to ");
     lcd.setCursor(0, 1);
     lcd.print("Define as Master");
-
     do {
       successRead = getID();            // sets successRead to 1 when we get read from reader otherwise 0
-
       // Visualize Master Card need to be defined
       digitalWrite(blueLed, HIGH);
       digitalWrite(BuzzerPin, HIGH);
@@ -245,139 +140,100 @@ void setup() {
     lcd.print("Master Defined");
     delay(2000);
   }
-
   for ( uint8_t i = 0; i < 4; i++ ) {          // Read Master Card's UID from EEPROM
     masterCard[i] = EEPROM.read(2 + i);    // Write it to masterCard
   }
-
-  ShowOnLCD();
+  ShowOnLCD();    // Print data on LCD
   cycleLeds();    // Everything ready lets give user some feedback by cycling leds
 }
-
-
 ///////////////////////////////////////// Main Loop ///////////////////////////////////
 void loop () {
-  if (esp8266.available()) {
-    Serial.write(esp8266.read());
-  }
-  if (Serial.available()) {
-    esp8266.write(Serial.read());
-  }
-
-  // System will first check the mode
-  if (RFIDMode == false) {  // If the RFID Mode is false then it will only look for master tag and messages
-    // Function to receive message
-
-
-    // Function to get tag's UID
-    getID();
-    if ( isMaster(readCard) ) { // If Scanned tag is master tag
-      RFIDMode = true; // Go back to RFID mode
-    }
-  }
-
-  else if (RFIDMode == true) { // If RFID Mode is true then it will look for all tags and messages
-    do {
-
-      successRead = getID();  // sets successRead to 1 when we get read from reader otherwise 0
-
-      if (programMode) {
-        cycleLeds();              // Program Mode cycles through Red Green Blue waiting to read a new card
-      }
-      else {
-        normalModeOn();     // Normal mode, blue Power LED is on, all others are off
-      }
-    }
-    while (!successRead && RFIDMode == true);   // If we get a tag and RFID mode is true (RFID Mode will become false on getting 'close' message)
+  do {
+    successRead = getID();  // sets successRead to 1 when we get read from reader otherwise 0
     if (programMode) {
-      if ( isMaster(readCard) ) { //When in program mode check First If master card scanned again to exit program mode
+      cycleLeds();              // Program Mode cycles through Red Green Blue waiting to read a new card
+    }
+    else {
+      normalModeOn();     // Normal mode, blue Power LED is on, all others are off
+    }
+  }
+  while (!successRead);   //the program will not go further while you are not getting a successful read
+  if (programMode) {
+    if ( isMaster(readCard) ) { //When in program mode check First If master card scanned again to exit program mode
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Exiting Program Mode");
+      digitalWrite(BuzzerPin, HIGH);
+      delay(1000);
+      digitalWrite(BuzzerPin, LOW);
+      ShowOnLCD();
+      programMode = false;
+      return;
+    }
+    else {
+      if ( findID(readCard) ) { // If scanned card is known delete it
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("Exiting Program Mode");
-        digitalWrite(BuzzerPin, HIGH);
-        delay(1000);
-        digitalWrite(BuzzerPin, LOW);
-        ShowOnLCD();
-        programMode = false;
-        return;
+        lcd.print("Already there");
+        deleteID(readCard);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Tag to ADD/REM");
+        lcd.setCursor(0, 1);
+        lcd.print("Master to Exit");
       }
-
-      else {
-        if ( findID(readCard) ) { // If scanned card is known delete it
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Already there");
-          deleteID(readCard);
-
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Tag to ADD/REM");
-          lcd.setCursor(0, 1);
-          lcd.print("Master to Exit");
-        }
-
-        else {                    // If scanned card is not known add it
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("New Tag,adding...");
-          writeID(readCard);
-
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Scan to ADD/REM");
-          lcd.setCursor(0, 1);
-          lcd.print("Master to Exit");
-        }
+      else {                    // If scanned card is not known add it
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("New Tag,adding...");
+        writeID(readCard);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Scan to ADD/REM");
+        lcd.setCursor(0, 1);
+        lcd.print("Master to Exit");
       }
     }
-
+  }
+  else {
+    if ( isMaster(readCard)) {    // If scanned card's ID matches Master Card's ID - enter program mode
+      programMode = true;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Program Mode");
+      uint8_t count = EEPROM.read(0);   // Read the first Byte of EEPROM that stores the number of ID's in EEPROM
+      lcd.setCursor(0, 1);
+      lcd.print("I have ");
+      lcd.print(count);
+      lcd.print(" records");
+      digitalWrite(BuzzerPin, HIGH);
+      delay(2000);
+      digitalWrite(BuzzerPin, LOW);
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Scan a Tag to ");
+      lcd.setCursor(0, 1);
+      lcd.print("ADD/REMOVE");
+    }
     else {
-      if ( isMaster(readCard)) {    // If scanned card's ID matches Master Card's ID - enter program mode
-        programMode = true;
-
+      if ( findID(readCard) ) { // If not, see if the card is in the EEPROM
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("Program Mode");
-
-        uint8_t count = EEPROM.read(0);   // Read the first Byte of EEPROM that stores the number of ID's in EEPROM
-        lcd.setCursor(0, 1);
-        lcd.print("I have ");
-        lcd.print(count);
-        lcd.print(" records");
-
-        digitalWrite(BuzzerPin, HIGH);
-        delay(2000);
-        digitalWrite(BuzzerPin, LOW);
-
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("Scan a Tag to ");
-        lcd.setCursor(0, 1);
-        lcd.print("ADD/REMOVE");
+        lcd.print("Access Granted");
+        granted();         // Open the door lock
+        myServo.write(10);
+        ShowOnLCD();
       }
-
-      else {
-        if ( findID(readCard) ) { // If not, see if the card is in the EEPROM
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Access Granted");
-          granted();         // Open the door lock
-          myServo.write(10);
-          ShowOnLCD();
-        }
-
-        else {      // If not, show that the Access is denied
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Access Denied");
-          denied();
-          ShowOnLCD();
-        }
+      else {      // If not, show that the Access is denied
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Access Denied");
+        denied();
+        ShowOnLCD();
       }
     }
   }
 }
-
 /////////////////////////////////////////  Access Granted    ///////////////////////////////////
 void granted () {
   digitalWrite(blueLed, LOW);   // Turn off blue LED
@@ -386,7 +242,6 @@ void granted () {
   myServo.write(90);
   delay(1000);
 }
-
 ///////////////////////////////////////// Access Denied  ///////////////////////////////////
 void denied() {
   digitalWrite(greenLed, LOW);  // Make sure green LED is off
@@ -396,8 +251,6 @@ void denied() {
   delay(1000);
   digitalWrite(BuzzerPin, LOW);
 }
-
-
 ///////////////////////////////////////// Get Tag's UID ///////////////////////////////////
 uint8_t getID() {
   // Getting ready for Reading Tags
@@ -416,16 +269,14 @@ uint8_t getID() {
   mfrc522.PICC_HaltA(); // Stop reading
   return 1;
 }
-
 /////////////////////// Check if RFID Reader is correctly initialized or not /////////////////////
 void ShowReaderDetails() {
   // Get the MFRC522 software version
   byte v = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-
   // When 0x00 or 0xFF is returned, communication probably failed
   if ((v == 0x00) || (v == 0xFF)) {
     lcd.setCursor(0, 0);
-    lcd.print("Communication Failure");
+    lcd.print("Communication Fail");
     lcd.setCursor(0, 1);
     lcd.print("Check Connections");
     digitalWrite(BuzzerPin, HIGH);
@@ -438,7 +289,6 @@ void ShowReaderDetails() {
     while (true); // do not go further
   }
 }
-
 ///////////////////////////////////////// Cycle Leds (Program Mode) ///////////////////////////////////
 void cycleLeds() {
   digitalWrite(redLed, LOW);  // Make sure red LED is off
@@ -454,14 +304,12 @@ void cycleLeds() {
   digitalWrite(blueLed, LOW);   // Make sure blue LED is off
   delay(200);
 }
-
 //////////////////////////////////////// Normal Mode Led  ///////////////////////////////////
 void normalModeOn () {
   digitalWrite(blueLed, HIGH);  // Blue LED ON and ready to read card
   digitalWrite(redLed, LOW);  // Make sure Red LED is off
   digitalWrite(greenLed, LOW);  // Make sure Green LED is off
 }
-
 //////////////////////////////////////// Read an ID from EEPROM //////////////////////////////
 void readID( uint8_t number ) {
   uint8_t start = (number * 4 ) + 2;    // Figure out starting position
@@ -469,7 +317,6 @@ void readID( uint8_t number ) {
     storedCard[i] = EEPROM.read(start + i);   // Assign values read from EEPROM to array
   }
 }
-
 ///////////////////////////////////////// Add ID to EEPROM   ///////////////////////////////////
 void writeID( byte a[] ) {
   if ( !findID( a ) ) {     // Before we write to the EEPROM, check to see if we have seen this card before!
@@ -494,7 +341,6 @@ void writeID( byte a[] ) {
     delay(2000);
   }
 }
-
 ///////////////////////////////////////// Remove ID from EEPROM   ///////////////////////////////////
 void deleteID( byte a[] ) {
   if ( !findID( a ) ) {     // Before we delete from the EEPROM, check to see if we have this card!
@@ -529,7 +375,6 @@ void deleteID( byte a[] ) {
     delay(1000);
   }
 }
-
 ///////////////////////////////////////// Check Bytes   ///////////////////////////////////
 boolean checkTwo ( byte a[], byte b[] ) {
   if ( a[0] != 0 )      // Make sure there is something in the array first
@@ -545,7 +390,6 @@ boolean checkTwo ( byte a[], byte b[] ) {
     return false;       // Return false
   }
 }
-
 ///////////////////////////////////////// Find Slot   ///////////////////////////////////
 uint8_t findIDSLOT( byte find[] ) {
   uint8_t count = EEPROM.read(0);       // Read the first Byte of EEPROM that
@@ -558,7 +402,6 @@ uint8_t findIDSLOT( byte find[] ) {
     }
   }
 }
-
 ///////////////////////////////////////// Find ID From EEPROM   ///////////////////////////////////
 boolean findID( byte find[] ) {
   uint8_t count = EEPROM.read(0);     // Read the first Byte of EEPROM that
@@ -573,8 +416,6 @@ boolean findID( byte find[] ) {
   }
   return false;
 }
-
-
 ///////////////////////////////////////// Blink LED's For Indication   ///////////////////////////////////
 void BlinkLEDS(int led) {
   digitalWrite(blueLed, LOW);   // Make sure blue LED is off
@@ -598,26 +439,22 @@ void BlinkLEDS(int led) {
   digitalWrite(BuzzerPin, LOW);
   delay(200);
 }
-
 ////////////////////// Check readCard IF is masterCard   ///////////////////////////////////
 // Check to see if the ID passed is the master programing card
 boolean isMaster( byte test[] ) {
   if ( checkTwo( test, masterCard ) )
-    return 1;
+    return true;
   else
-    return 0;
+    return false;
 }
-
 /////////////////// Counter to check in reset/wipe button is pressed or not   /////////////////////
 bool monitorWipeButton(uint32_t interval) {
   unsigned long currentMillis = millis(); // grab current time
-
   while (millis() - currentMillis < interval)  {
     int timeSpent = (millis() - currentMillis) / 1000;
     Serial.println(timeSpent);
     lcd.setCursor(10, 1);
     lcd.print(timeSpent);
-
     // check on every half a second
     if (((uint32_t)millis() % 10) == 0) {
       if (digitalRead(wipeB) != LOW) {
@@ -627,7 +464,6 @@ bool monitorWipeButton(uint32_t interval) {
   }
   return true;
 }
-
 ////////////////////// Print Info on LCD   ///////////////////////////////////
 void ShowOnLCD() {
   lcd.clear();
